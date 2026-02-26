@@ -1,0 +1,195 @@
+CLASS lcl_class DEFINITION.
+  PUBLIC SECTION.
+    METHODS: start_screen,
+             pbo_0100,
+             pai_0100 IMPORTING iv_ucomm TYPE sy-ucomm,
+             get_data,
+             set_fcat,
+             set_layout,
+             display_alv,
+             insert_to_fcat IMPORTING iv_columnname TYPE string
+                                      iv_ref_field  TYPE string
+                                      iv_ref_table  TYPE string
+                            EXPORTING es_fcat       TYPE lvc_s_fcat,
+             handle_button_click_serbest
+               FOR EVENT button_click OF cl_gui_alv_grid
+               IMPORTING es_col_id
+                         es_row_no,
+             handle_button_click_demirbas
+               FOR EVENT button_click OF cl_gui_alv_grid
+               IMPORTING es_col_id
+                         es_row_no.
+ENDCLASS.
+
+CLASS lcl_class IMPLEMENTATION.
+
+  METHOD start_screen.
+    CALL SCREEN 0100.
+  ENDMETHOD.
+
+  METHOD pbo_0100.
+    SET PF-STATUS '0100'.
+    SET TITLEBAR '0100'.
+    go_main->get_data( ).
+    go_main->set_fcat( ).
+    go_main->set_layout( ).
+    go_main->display_alv( ).
+  ENDMETHOD.
+
+  METHOD pai_0100.
+    CASE iv_ucomm.
+      WHEN '&BACK'.
+        SET SCREEN 0.
+    ENDCASE.
+  ENDMETHOD.
+
+  METHOD get_data.
+    "Serbest stok verilerini çekme
+    SELECT matnr, maktx, labst FROM z178_demrbasyn_t
+      INTO CORRESPONDING FIELDS OF TABLE @gt_serbest_alvtable
+      WHERE demirbas_mi EQ 'S'.
+
+    " Serbest st için buton tanımlama
+    LOOP AT gt_serbest_alvtable ASSIGNING <fs_serbest>.
+      <fs_serbest>-button = 'Demirbaslara Ekle'.
+    ENDLOOP.
+    SORT gt_serbest_alvtable ASCENDING BY matnr. "matnr göre
+
+    "Demirbaş stok verilerini çekme
+    SELECT matnr, maktx, labst FROM z178_demrbasyn_t
+      INTO CORRESPONDING FIELDS OF TABLE @gt_demirbas_alvtable
+      WHERE demirbas_mi EQ 'D'.
+
+    " Demirbaş st için buton tanımlama
+    LOOP AT gt_demirbas_alvtable ASSIGNING <fs_demirbas>.
+      <fs_demirbas>-button = 'Serbest Stoklara Ekle'.
+    ENDLOOP.
+    SORT gt_demirbas_alvtable ASCENDING BY matnr. "matnr göre sırala
+  ENDMETHOD.
+
+  METHOD set_fcat.
+    go_main->insert_to_fcat(
+      EXPORTING
+        iv_columnname = 'Malzeme Numarası'
+        iv_ref_field  = 'MATNR'
+        iv_ref_table  = 'Z178_DEMRBASYN_T'
+      IMPORTING
+        es_fcat = gs_fcat ).
+    APPEND gs_fcat TO gt_serbest_fcat.
+    APPEND gs_fcat TO gt_demirbas_fcat.
+    CLEAR gs_fcat.
+
+    go_main->insert_to_fcat(
+      EXPORTING
+        iv_columnname = 'Malzeme Tanımı'
+        iv_ref_field  = 'MAKTX'
+        iv_ref_table  = 'Z178_DEMRBASYN_T'
+      IMPORTING
+        es_fcat = gs_fcat ).
+    APPEND gs_fcat TO gt_serbest_fcat.
+    APPEND gs_fcat TO gt_demirbas_fcat.
+    CLEAR gs_fcat.
+
+    go_main->insert_to_fcat(
+      EXPORTING
+        iv_columnname = 'Stok Miktarı'
+        iv_ref_field  = 'LABST'
+        iv_ref_table  = 'Z178_DEMRBASYN_T'
+      IMPORTING
+        es_fcat = gs_fcat ).
+    APPEND gs_fcat TO gt_serbest_fcat.
+    APPEND gs_fcat TO gt_demirbas_fcat.
+    CLEAR gs_fcat.
+
+    gs_fcat-fieldname = 'BUTTON'.
+    gs_fcat-scrtext_s = 'Demirbaşlara Ekle'.
+    gs_fcat-style     = cl_gui_alv_grid=>mc_style_button.
+    APPEND gs_fcat TO gt_serbest_fcat.
+    CLEAR gs_fcat.
+
+    gs_fcat-fieldname = 'BUTTON'.
+    gs_fcat-scrtext_s = 'Serbest Stoklara Ekle'.
+    gs_fcat-style     = cl_gui_alv_grid=>mc_style_button.
+    APPEND gs_fcat TO gt_demirbas_fcat.
+    CLEAR gs_fcat.
+  ENDMETHOD.
+
+  METHOD insert_to_fcat.
+    es_fcat-ref_field = iv_ref_field.
+    es_fcat-ref_table = iv_ref_table.
+    es_fcat-fieldname = iv_ref_field.
+    es_fcat-scrtext_s = iv_columnname.
+  ENDMETHOD.
+
+  METHOD set_layout.
+    gs_layout-zebra      = abap_true.
+    gs_layout-cwidth_opt = abap_true.
+    gs_layout-col_opt    = abap_true.
+    gs_layout-grid_title = 'Serbest Raporu'.
+  ENDMETHOD.
+
+  METHOD display_alv.
+    IF go_serbest_grid IS INITIAL.
+      CREATE OBJECT go_serbest_container
+        EXPORTING container_name = 'CC_ALV_SERBEST'.
+
+      CREATE OBJECT go_serbest_grid
+        EXPORTING i_parent = go_serbest_container.
+
+      SET HANDLER go_main->handle_button_click_serbest FOR go_serbest_grid. "buton basmayı methoda tanımla
+
+      go_serbest_grid->set_table_for_first_display(
+        EXPORTING is_layout       = gs_layout
+        CHANGING  it_outtab       = gt_serbest_alvtable
+                  it_fieldcatalog = gt_serbest_fcat ).
+    ELSE.
+      go_main->get_data( ). "çünkü değişiklik yapıp yerleri değişecek alv de
+      CALL METHOD go_serbest_grid->refresh_table_display.
+    ENDIF.
+
+    IF go_demirbas_grid IS INITIAL.
+      CREATE OBJECT go_demirbas_container
+        EXPORTING container_name = 'CC_ALV_DEMIRBAS'.
+
+      CREATE OBJECT go_demirbas_grid
+        EXPORTING i_parent = go_demirbas_container.
+
+      SET HANDLER go_main->handle_button_click_demirbas FOR go_demirbas_grid. "buton basmayı methoda tanımla
+
+      gs_layout-grid_title = 'Demirbaş Raporu'. "layoutda title değiştir.
+
+      go_demirbas_grid->set_table_for_first_display(
+        EXPORTING is_layout       = gs_layout
+        CHANGING  it_outtab       = gt_demirbas_alvtable
+                  it_fieldcatalog = gt_demirbas_fcat ).
+    ELSE.
+      go_main->get_data( ).
+      CALL METHOD go_demirbas_grid->refresh_table_display.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD handle_button_click_serbest. "Butona basıldığında çalışır
+    DATA: ls_mlzstok TYPE z178_demrbasyn_t.
+    READ TABLE gt_serbest_alvtable INTO gs_serbest_alvtable INDEX es_row_no-row_id. "tıklanılan index
+    ls_mlzstok-matnr       = gs_serbest_alvtable-matnr. "tıklanılan butonun structure al
+    ls_mlzstok-maktx       = gs_serbest_alvtable-maktx.
+    ls_mlzstok-labst       = gs_serbest_alvtable-labst.
+    ls_mlzstok-demirbas_mi = 'D'. "Demirbaş yap
+    UPDATE z178_demrbasyn_t FROM ls_mlzstok. "DB değişiklik update bu structure
+    CLEAR: gs_serbest_alvtable.
+    go_main->display_alv( ). "ekranı yenile
+  ENDMETHOD.
+
+  METHOD handle_button_click_demirbas.
+    DATA: ls_mlzstok TYPE z178_demrbasyn_t.
+    READ TABLE gt_demirbas_alvtable INTO gs_demirbas_alvtable INDEX es_row_no-row_id. "tıklana rowu alır
+    ls_mlzstok-matnr       = gs_demirbas_alvtable-matnr.
+    ls_mlzstok-maktx       = gs_demirbas_alvtable-maktx.
+    ls_mlzstok-labst       = gs_demirbas_alvtable-labst.
+    ls_mlzstok-demirbas_mi = 'S'. " Serbest yap
+    UPDATE Z178_DEMRBASYN_T FROM ls_mlzstok.
+    CLEAR: gs_demirbas_alvtable.
+    go_main->display_alv( ). "ekranı yenile
+  ENDMETHOD.
+
+ENDCLASS.
